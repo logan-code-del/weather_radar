@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Live Weather Radar & Alerts</title>
+  <!-- Leaflet CSS -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+  <style>
+    /* Layout: sidebar + map */
+    html, body {
+      height: 100%;
+      margin: 0;
+      background: #0f172a; /* slate-900 */
+      color: #e2e8f0; /* slate-200 */
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+    }
+    .app {
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      grid-template-rows: 56px 1fr;
+      grid-template-areas:
+        "header header"
+        "sidebar map";
+      height: 100%;
+    }
+    header {
+      grid-area: header;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      border-bottom: 1px solid #1f2937; /* gray-800 */
+      background: #111827; /* gray-900 */
+    }
+    header h1 {
+      font-size: 16px;
+      margin: 0;
+      color: #93c5fd; /* blue-300 */
+      letter-spacing: 0.3px;
+    }
+    #controls {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .btn {
+      background: #1f2937; /* gray-800 */
+      color: #e5e7eb; /* gray-200 */
+      border: 1px solid #374151; /* gray-700 */
+      padding: 6px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    .btn:hover { background: #111827; }
+    .toggle {
+      display: inline-flex;
+      gap: 6px;
+      align-items: center;
+      font-size: 12px;
+    }
+
+    aside {
+      grid-area: sidebar;
+      border-right: 1px solid #1f2937;
+      background: #0b1220;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+    .panel {
+      padding: 12px 12px 0 12px;
+      border-bottom: 1px solid #1f2937;
+    }
+    .panel h2 {
+      margin: 0 0 8px 0;
+      font-size: 13px;
+      color: #a7f3d0; /* emerald-200 */
+      font-weight: 600;
+      letter-spacing: 0.2px;
+    }
+    #current-weather {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 6px 10px;
+      font-size: 12px;
+    }
+    #alert-list {
+      padding: 12px;
+      overflow: auto;
+      flex: 1;
+    }
+    .alert-item {
+      border: 1px solid #374151;
+      border-left-width: 4px;
+      padding: 8px;
+      border-radius: 6px;
+      margin-bottom: 10px;
+      background: #0a1020;
+    }
+    .alert-item h3 {
+      font-size: 13px;
+      margin: 0 0 4px 0;
+    }
+    .alert-meta {
+      font-size: 11px;
+      color: #9ca3af;
+    }
+
+    #map { grid-area: map; height: 100%; width: 100%; }
+
+    /* Leaflet tweaks (dark) */
+    .leaflet-control-attribution, .leaflet-control-scale {
+      background: rgba(17, 24, 39, 0.85) !important;
+      color: #e5e7eb !important;
+      border: 1px solid #374151 !important;
+    }
+    .legend {
+      position: absolute;
+      bottom: 12px;
+      left: 12px;
+      background: rgba(17, 24, 39, 0.85);
+      padding: 8px 10px;
+      border: 1px solid #374151;
+      border-radius: 6px;
+      font-size: 12px;
+      color: #e5e7eb;
+      z-index: 1000;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>Live Weather Radar & Alerts (US)</h1>
+      <div id="controls">
+        <input id="locationInput" type="text" placeholder="Enter city or place" style="background:#0b1220;color:#e5e7eb;border:1px solid #374151;border-radius:6px;padding:6px 8px;font-size:12px;min-width:200px;" />
+        <button id="goBtn" class="btn" title="Find location">Go</button>
+        <button id="playPauseBtn" class="btn" title="Play/Pause radar animation">Play</button>
+        <div class="toggle">
+          <input type="checkbox" id="toggleRadar" checked />
+          <label for="toggleRadar">Radar</label>
+        </div>
+        <div class="toggle">
+          <input type="checkbox" id="toggleAlerts" checked />
+          <label for="toggleAlerts">Alerts</label>
+        </div>
+      </div>
+    </header>
+
+    <aside>
+      <div class="panel">
+        <h2>Current Weather (Your Location)</h2>
+        <div id="current-weather">
+          <div><strong>Temp</strong><div id="cw-temp">—</div></div>
+          <div><strong>Precip</strong><div id="cw-precip">—</div></div>
+          <div><strong>Wind</strong><div id="cw-wind">—</div></div>
+          <div><strong>Condition</strong><div id="cw-desc">—</div></div>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>Active Alerts (Nationwide)</h2>
+      </div>
+      <div id="alert-list"></div>
+    </aside>
+
+    <div id="map"></div>
+    <div class="legend">Data: OSM • Radar: RainViewer • Alerts: NWS • Weather: Open‑Meteo</div>
+  </div>
+
+  <!-- Leaflet JS -->
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
+  <script>
+    // --- Map Initialization ---
+    const map = L.map('map', {
+      center: [39.8283, -98.5795], // contiguous US center
+      zoom: 4,
+      zoomControl: true,
+    });
+
+    const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    // --- Radar (RainViewer) ---
+    // We'll fetch the latest radar frames and animate them.
+    const radarState = {
+      frames: [],
+      index: 0,
+      isPlaying: false,
+      timer: null,
+      layers: [],
+    };
+
+    async function loadRadar() {
+      try {
+        const res = await fetch('https://tilecache.rainviewer.com/v2/radar/nowcast.json');
+        if (!res.ok) throw new Error(`RainViewer failed ${res.status}`);
+        const data = await res.json();
+        radarState.frames = data.nowcast || data.radar || [];
+        if (!radarState.frames.length) throw new Error('No frames');
+        buildRadarLayers();
+      } catch (e) {
+        console.warn('Radar load failed, using local fallback if available:', e);
+        try {
+          const localRes = await fetch('./data/radar_frames.json');
+          if (!localRes.ok) throw new Error(`Local frames missing ${localRes.status}`);
+          const localData = await localRes.json();
+          radarState.frames = localData.nowcast || localData.radar || [];
+          buildRadarLayers();
+        } catch (e2) {
+          console.error('Fallback radar load failed', e2);
+        }
+      }
+    }
+
+    function buildRadarLayers() {
+      // Clear previous layers
+      radarState.layers.forEach(l => map.removeLayer(l));
+      radarState.layers = [];
+
+      // Build tile layers for each frame
+      radarState.frames.forEach((frame) => {
+        const ts = frame.time;
+        const url = `https://tilecache.rainviewer.com/v2/radar/${ts}/256/{z}/{x}/{y}/2/1_1.png`;
+        const lyr = L.tileLayer(url, {
+          tileSize: 256,
+          opacity: 0, // start hidden, we'll fade active frame
+          zIndex: 200,
+          attribution: 'RainViewer'
+        });
+        radarState.layers.push(lyr);
+      });
+
+      if (radarState.layers.length) {
+        // Add all layers to map (hidden), then show first frame
+        radarState.layers.forEach(l => l.addTo(map));
+        radarState.index = Math.max(0, radarState.layers.length - 1); // show latest by default
+        setRadarOpacity(radarState.index, 0.7);
+      }
+    }
+
+    function setRadarOpacity(activeIndex, opacity) {
+      radarState.layers.forEach((l, i) => l.setOpacity(i === activeIndex ? opacity : 0));
+    }
+
+    function nextRadarFrame() {
+      if (!radarState.layers.length) return;
+      radarState.index = (radarState.index + 1) % radarState.layers.length;
+      setRadarOpacity(radarState.index, 0.7);
+    }
+
+    function playRadar() {
+      if (radarState.isPlaying || !radarState.layers.length) return;
+      radarState.isPlaying = true;
+      document.getElementById('playPauseBtn').innerText = 'Pause';
+      radarState.timer = setInterval(nextRadarFrame, 700);
+    }
+
+    function pauseRadar() {
+      radarState.isPlaying = false;
+      document.getElementById('playPauseBtn').innerText = 'Play';
+      if (radarState.timer) clearInterval(radarState.timer);
+      radarState.timer = null;
+    }
+
+    document.getElementById('playPauseBtn').addEventListener('click', () => {
+      if (radarState.isPlaying) pauseRadar(); else playRadar();
+    });
+
+    // Toggle radar visibility
+    const toggleRadar = document.getElementById('toggleRadar');
+    toggleRadar.addEventListener('change', () => {
+      const visible = toggleRadar.checked;
+      const opacity = visible ? 0.7 : 0;
+      setRadarOpacity(radarState.index, opacity);
+    });
+
+    // --- NWS Alerts (Nationwide) ---
+    const alertStyleBySeverity = (sev) => {
+      switch ((sev || '').toLowerCase()) {
+        case 'extreme': return { color: '#ef4444', fillColor: '#ef4444', weight: 2, fillOpacity: 0.15 };
+        case 'severe': return { color: '#f97316', fillColor: '#f97316', weight: 2, fillOpacity: 0.15 };
+        case 'moderate': return { color: '#eab308', fillColor: '#eab308', weight: 2, fillOpacity: 0.15 };
+        case 'minor': return { color: '#22c55e', fillColor: '#22c55e', weight: 2, fillOpacity: 0.15 };
+        default: return { color: '#60a5fa', fillColor: '#60a5fa', weight: 1, dashArray: '4,3', fillOpacity: 0.10 };
+      }
+    };
+
+    let alertLayer = L.geoJSON(null, {
+      style: (feat) => alertStyleBySeverity(feat?.properties?.severity),
+      onEachFeature: (feature, layer) => {
+        const p = feature.properties || {};
+        const title = p.event || 'Alert';
+        const area = p.areaDesc || '';
+        const severity = p.severity || 'Unknown';
+        const sent = p.sent ? new Date(p.sent).toLocaleString() : '';
+        const desc = p.headline || p.description || '';
+        const link = p?.id || p?.url || p?.['@id'] || null;
+        const html = `
+          <div style="max-width: 280px;">
+            <div style="font-weight:600;margin-bottom:4px;">${title}</div>
+            <div style="font-size:12px;color:#9ca3af;margin-bottom:6px;">${severity} • ${sent}</div>
+            <div style="font-size:12px;">${(desc || '').slice(0, 400)}${desc && desc.length > 400 ? '…' : ''}</div>
+            ${link ? `<div style="margin-top:6px;"><a href="${link}" target="_blank" rel="noopener">Details</a></div>` : ''}
+          </div>`;
+        layer.bindPopup(html);
+      }
+    });
+
+    async function loadAlerts() {
+      try {
+        // api.weather.gov supports CORS. Browsers set User-Agent automatically.
+        const url = 'https://api.weather.gov/alerts/active?status=actual&message_type=alert&limit=2000';
+        const res = await fetch(url, { headers: { 'Accept': 'application/geo+json' } });
+        const gj = await res.json();
+
+        // Populate sidebar list
+        const list = document.getElementById('alert-list');
+        list.innerHTML = '';
+
+        const feats = (gj && gj.features) ? gj.features : [];
+        feats.forEach((f, idx) => {
+          const p = f.properties || {};
+          const div = document.createElement('div');
+          div.className = 'alert-item';
+          div.style.borderLeftColor = alertStyleBySeverity(p.severity).color;
+          const where = p.areaDesc || '—';
+          const when = p.sent ? new Date(p.sent).toLocaleString() : '';
+          div.innerHTML = `
+            <h3>${p.event || 'Alert'}</h3>
+            <div class="alert-meta">${p.severity || 'Unknown'} • ${when}</div>
+            <div style="margin-top:6px;font-size:12px;">${where}</div>
+          `;
+          div.addEventListener('click', () => {
+            try {
+              const lyr = alertLayer.getLayers()[idx];
+              if (lyr) {
+                map.fitBounds(lyr.getBounds(), { maxZoom: 9, padding: [20, 20] });
+                lyr.openPopup();
+              }
+            } catch {}
+          });
+          list.appendChild(div);
+        });
+
+        // Add to map
+        alertLayer.clearLayers();
+        alertLayer.addData(gj);
+        alertLayer.addTo(map);
+      } catch (e) {
+        console.error('Alerts load failed', e);
+      }
+    }
+
+    // Toggle alerts visibility
+    const toggleAlerts = document.getElementById('toggleAlerts');
+    toggleAlerts.addEventListener('change', () => {
+      if (toggleAlerts.checked) {
+        alertLayer.addTo(map);
+      } else {
+        map.removeLayer(alertLayer);
+      }
+    });
+
+    // --- Current Weather (Open-Meteo) ---
+    function weatherCodeToText(code) {
+      // Minimal mapping of WMO weather codes
+      const m = {
+        0: 'Clear', 1: 'Mainly clear', 2: 'Partly cloudy', 3: 'Overcast',
+        45: 'Fog', 48: 'Depositing rime fog',
+        51: 'Light drizzle', 53: 'Drizzle', 55: 'Dense drizzle',
+        56: 'Freezing drizzle', 57: 'Dense freezing drizzle',
+        61: 'Light rain', 63: 'Rain', 65: 'Heavy rain',
+        66: 'Freezing rain', 67: 'Heavy freezing rain',
+        71: 'Light snow', 73: 'Snow', 75: 'Heavy snow',
+        77: 'Snow grains',
+        80: 'Rain showers', 81: 'Heavy rain showers', 82: 'Violent rain showers',
+        85: 'Snow showers', 86: 'Heavy snow showers',
+        95: 'Thunderstorm', 96: 'Thunderstorm with hail', 99: 'Thunderstorm severe hail'
+      };
+      return m[code] || '—';
+    }
+
+    async function loadCurrentWeather(lat, lon) {
+      try {
+        const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,precipitation,weather_code,wind_speed_10m&timezone=auto`;
+        const res = await fetch(url);
+        const data = await res.json();
+        const c = data.current || {};
+        document.getElementById('cw-temp').innerText = c.temperature_2m != null ? `${c.temperature_2m} °C` : '—';
+        document.getElementById('cw-precip').innerText = c.precipitation != null ? `${c.precipitation} mm` : '—';
+        document.getElementById('cw-wind').innerText = c.wind_speed_10m != null ? `${c.wind_speed_10m} m/s` : '—';
+        document.getElementById('cw-desc').innerText = c.weather_code != null ? weatherCodeToText(c.weather_code) : '—';
+      } catch (e) {
+        console.error('Weather load failed', e);
+      }
+    }
+
+    // --- Open‑Meteo geocoding (CORS-friendly on GitHub Pages) ---
+    async function geocode(query) {
+      const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=1&language=en&format=json`;
+      const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+      if (!res.ok) throw new Error(`Geocode failed ${res.status}`);
+      const data = await res.json();
+      const r = data && Array.isArray(data.results) ? data.results[0] : null;
+      if (!r) return null;
+      return { lat: r.latitude, lon: r.longitude, label: `${r.name}${r.admin1 ? ', ' + r.admin1 : ''}${r.country ? ', ' + r.country : ''}` };
+    }
+
+    function setLocation(lat, lon, label) {
+      map.setView([lat, lon], 8);
+      loadCurrentWeather(lat, lon);
+      if (label) {
+        const marker = L.marker([lat, lon], { title: label });
+        marker.bindPopup(`<b>${label}</b>`).openPopup();
+        marker.addTo(map);
+        setTimeout(() => map.removeLayer(marker), 10000);
+      }
+    }
+
+    function initLocationControls() {
+      const input = document.getElementById('locationInput');
+      const goBtn = document.getElementById('goBtn');
+
+      const performSearch = async () => {
+        const q = (input.value || '').trim();
+        if (!q) return;
+        try {
+          const r = await geocode(q);
+          if (r) {
+            setLocation(r.lat, r.lon, r.label);
+          } else {
+            alert('Location not found. Try a city, state, or address.');
+          }
+        } catch (e) {
+          console.error('Geocoding failed', e);
+          alert('Failed to look up that location.');
+        }
+      };
+
+      goBtn.addEventListener('click', performSearch);
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') performSearch();
+      });
+    }
+
+    // --- Startup ---
+    (async function start() {
+      initLocationControls();
+      await loadRadar();
+      await loadAlerts();
+      playRadar();
+      setInterval(loadAlerts, 5 * 60 * 1000);
+      setInterval(loadRadar, 5 * 60 * 1000);
+    })();
+  </script>
+</body>
+</html>
