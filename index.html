@@ -193,10 +193,12 @@
       attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
 
-    // --- Radar (RainViewer) ---
-    // We'll fetch the latest radar frames and animate them.
+    // --- Radar (MapTiler Weather) ---
+    // Requires a MapTiler API key. Get one at https://cloud.maptiler.com/
+    const MAPTILER_KEY = 'vzcVYFMBqmCBhTOGr2VV';
+
     const radarState = {
-      frames: [],
+      frames: [], // ISO timestamps returned by MapTiler
       index: 0,
       isPlaying: false,
       timer: null,
@@ -205,23 +207,15 @@
 
     async function loadRadar() {
       try {
-        const res = await fetch('https://tilecache.rainviewer.com/v2/radar/nowcast.json');
-        if (!res.ok) throw new Error(`RainViewer failed ${res.status}`);
-        const data = await res.json();
-        radarState.frames = data.nowcast || data.radar || [];
-        if (!radarState.frames.length) throw new Error('No frames');
+        // MapTiler weather timestamps (ISO strings)
+        const res = await fetch(`https://api.maptiler.com/weather/precipitation/tiles/timestamps.json?key=${MAPTILER_KEY}`);
+        if (!res.ok) throw new Error(`MapTiler timestamps failed ${res.status}`);
+        const timestamps = await res.json();
+        if (!Array.isArray(timestamps) || !timestamps.length) throw new Error('No frames');
+        radarState.frames = timestamps; // e.g., ["2024-09-09T18:00:00Z", ...]
         buildRadarLayers();
       } catch (e) {
-        console.warn('Radar load failed, using local fallback if available:', e);
-        try {
-          const localRes = await fetch('./data/radar_frames.json');
-          if (!localRes.ok) throw new Error(`Local frames missing ${localRes.status}`);
-          const localData = await localRes.json();
-          radarState.frames = localData.nowcast || localData.radar || [];
-          buildRadarLayers();
-        } catch (e2) {
-          console.error('Fallback radar load failed', e2);
-        }
+        console.error('Radar (MapTiler) load failed', e);
       }
     }
 
@@ -230,23 +224,21 @@
       radarState.layers.forEach(l => map.removeLayer(l));
       radarState.layers = [];
 
-      // Build tile layers for each frame
-      radarState.frames.forEach((frame) => {
-        const ts = frame.time;
-        const url = `https://tilecache.rainviewer.com/v2/radar/${ts}/256/{z}/{x}/{y}/2/1_1.png`;
+      // Build tile layers for each frame using MapTiler raster tiles
+      radarState.frames.forEach((isoTs) => {
+        const url = `https://api.maptiler.com/tiles/weather/precipitation/{z}/{x}/{y}.png?key=${MAPTILER_KEY}&time=${encodeURIComponent(isoTs)}`;
         const lyr = L.tileLayer(url, {
           tileSize: 256,
-          opacity: 0, // start hidden, we'll fade active frame
+          opacity: 0, // start hidden
           zIndex: 200,
-          attribution: 'RainViewer'
+          attribution: 'MapTiler Weather'
         });
         radarState.layers.push(lyr);
       });
 
       if (radarState.layers.length) {
-        // Add all layers to map (hidden), then show first frame
         radarState.layers.forEach(l => l.addTo(map));
-        radarState.index = Math.max(0, radarState.layers.length - 1); // show latest by default
+        radarState.index = Math.max(0, radarState.layers.length - 1); // latest by default
         setRadarOpacity(radarState.index, 0.7);
       }
     }
