@@ -208,7 +208,7 @@
     async function loadRadar() {
       try {
         // Use MapTiler Weather catalog to get keyframes for precipitation
-        const res = await fetch(`https://api.maptiler.com/weather/latest.json?key=${MAPTILER_KEY}`);
+        const res = await fetch(`https://api.maptiler.com/weather/latest.json?key=${MAPTILER_KEY}&_=${Date.now()}`);
         if (!res.ok) throw new Error(`MapTiler latest.json failed ${res.status}`);
         const catalog = await res.json();
         const vars = Array.isArray(catalog?.variables) ? catalog.variables : [];
@@ -362,15 +362,31 @@
           list.appendChild(div);
         });
 
-        // Add to map (sanitize invalid features to avoid Leaflet errors)
+        // Add to map (stronger sanitization to avoid Leaflet errors)
         const isFC = gj && gj.type === 'FeatureCollection' && Array.isArray(gj.features);
         const featsRaw = isFC ? gj.features : [];
-        const feats = featsRaw.filter(f => f && f.type === 'Feature' && f.properties && f.geometry && typeof f.geometry === 'object');
+
+        const validGeomTypes = new Set(['Point','MultiPoint','LineString','MultiLineString','Polygon','MultiPolygon','GeometryCollection']);
+        const isValidGeometry = (g) => {
+          if (!g || typeof g !== 'object' || !validGeomTypes.has(g.type)) return false;
+          if (g.type === 'GeometryCollection') {
+            return Array.isArray(g.geometries) && g.geometries.every(isValidGeometry);
+          }
+          // For other types, coordinates should be present (structure details vary, so shallow check)
+          return 'coordinates' in g;
+        };
+        const isValidFeature = (f) => f && f.type === 'Feature' && f.properties && isValidGeometry(f.geometry);
+
+        const feats = featsRaw.filter(isValidFeature);
 
         alertLayer.clearLayers();
-        const safeCollection = { type: 'FeatureCollection', features: feats };
-        alertLayer.addData(safeCollection);
-        alertLayer.addTo(map);
+        // Add features individually to isolate any unexpected malformed items
+        feats.forEach((f) => {
+          try { alertLayer.addData(f); } catch (err) { /* skip malformed */ }
+        });
+        if (!map.hasLayer(alertLayer)) {
+          alertLayer.addTo(map);
+        }
       } catch (e) {
         console.error('Alerts load failed', e);
       }
