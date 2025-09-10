@@ -337,8 +337,8 @@
         const list = document.getElementById('alert-list');
         list.innerHTML = '';
 
-        const feats = (gj && gj.features) ? gj.features : [];
-        feats.forEach((f, idx) => {
+        const sidebarFeats = (gj && gj.features) ? gj.features : [];
+        sidebarFeats.forEach((f, idx) => {
           const p = f.properties || {};
           const div = document.createElement('div');
           div.className = 'alert-item';
