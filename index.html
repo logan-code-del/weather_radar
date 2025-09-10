@@ -326,11 +326,31 @@
       }
     });
 
+    // Cache validators to avoid heavy re-renders when data hasn't changed
+    const alertsState = { etag: null, lastModified: null, abortCtrl: null };
+
     async function loadAlerts() {
       try {
         // api.weather.gov supports CORS. Browsers set User-Agent automatically.
         const url = 'https://api.weather.gov/alerts/active?status=actual&message_type=alert';
-        const res = await fetch(url, { headers: { 'Accept': 'application/geo+json' } });
+        // Abort any in-flight request before starting a new one
+        if (alertsState.abortCtrl) { try { alertsState.abortCtrl.abort(); } catch {} }
+        alertsState.abortCtrl = new AbortController();
+
+        const headers = { 'Accept': 'application/geo+json' };
+        if (alertsState.etag) headers['If-None-Match'] = alertsState.etag;
+        if (alertsState.lastModified) headers['If-Modified-Since'] = alertsState.lastModified;
+
+        const res = await fetch(url, { headers, signal: alertsState.abortCtrl.signal });
+        if (res.status === 304) {
+          // Not modified: skip heavy DOM/Leaflet updates
+          return;
+        }
+
+        // Capture validators for next request
+        alertsState.etag = res.headers.get('ETag');
+        alertsState.lastModified = res.headers.get('Last-Modified');
+
         const gj = await res.json();
 
         // Populate sidebar list
@@ -384,7 +404,8 @@
         feats.forEach((f) => {
           try { alertLayer.addData(f); } catch (err) { /* skip malformed */ }
         });
-        if (!map.hasLayer(alertLayer)) {
+        // Only add the layer if it has content, to reduce redraw work
+        if (alertLayer.getLayers().length > 0 && !map.hasLayer(alertLayer)) {
           alertLayer.addTo(map);
         }
       } catch (e) {
