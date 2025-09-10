@@ -207,12 +207,27 @@
 
     async function loadRadar() {
       try {
-        // MapTiler weather timestamps (ISO strings)
-        const res = await fetch(`https://api.maptiler.com/weather/precipitation/tiles/timestamps.json?key=${MAPTILER_KEY}`);
-        if (!res.ok) throw new Error(`MapTiler timestamps failed ${res.status}`);
-        const timestamps = await res.json();
-        if (!Array.isArray(timestamps) || !timestamps.length) throw new Error('No frames');
-        radarState.frames = timestamps; // e.g., ["2024-09-09T18:00:00Z", ...]
+        // Use MapTiler Weather catalog to get keyframes for precipitation
+        const res = await fetch(`https://api.maptiler.com/weather/latest.json?key=${MAPTILER_KEY}`);
+        if (!res.ok) throw new Error(`MapTiler latest.json failed ${res.status}`);
+        const catalog = await res.json();
+        const vars = Array.isArray(catalog?.variables) ? catalog.variables : [];
+
+        // Try to find precipitation variable (fallbacks included)
+        let precip = vars.find(v => v?.metadata?.id === 'precipitation')
+                 || vars.find(v => (v?.metadata?.name || '').toLowerCase() === 'precipitation')
+                 || vars.find(v => (v?.metadata?.id || '').toLowerCase().includes('radar'))
+                 || vars.find(v => JSON.stringify(v?.metadata || {}).toLowerCase().includes('precip'));
+
+        if (!precip || !Array.isArray(precip.keyframes) || !precip.keyframes.length) {
+          throw new Error('No precipitation keyframes found');
+        }
+
+        // Extract ISO timestamps from keyframes
+        radarState.frames = precip.keyframes
+          .map(k => k?.time)
+          .filter(Boolean);
+
         buildRadarLayers();
       } catch (e) {
         console.error('Radar (MapTiler) load failed', e);
@@ -347,9 +362,14 @@
           list.appendChild(div);
         });
 
-        // Add to map
+        // Add to map (sanitize invalid features to avoid Leaflet errors)
+        const isFC = gj && gj.type === 'FeatureCollection' && Array.isArray(gj.features);
+        const featsRaw = isFC ? gj.features : [];
+        const feats = featsRaw.filter(f => f && f.type === 'Feature' && f.properties && f.geometry && typeof f.geometry === 'object');
+
         alertLayer.clearLayers();
-        alertLayer.addData(gj);
+        const safeCollection = { type: 'FeatureCollection', features: feats };
+        alertLayer.addData(safeCollection);
         alertLayer.addTo(map);
       } catch (e) {
         console.error('Alerts load failed', e);
