@@ -329,7 +329,7 @@
     async function loadAlerts() {
       try {
         // api.weather.gov supports CORS. Browsers set User-Agent automatically.
-        const url = 'https://api.weather.gov/alerts/active?status=actual&message_type=alert&limit=2000';
+        const url = 'https://api.weather.gov/alerts/active?status=actual&message_type=alert';
         const res = await fetch(url, { headers: { 'Accept': 'application/geo+json' } });
         const gj = await res.json();
 
